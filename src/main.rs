@@ -102,6 +102,10 @@ struct Args {
     /// Configure proxy for fetch cache
     #[arg(long)]
     proxy: Option<String>,
+
+    /// Force background cache scan, even if verify cache integrity is enabled
+    #[arg(long, default_value_t = false)]
+    force_background_scan: bool,
 }
 
 type DownloadState = Mutex<HashMap<[u8; 20], (watch::Receiver<Option<Arc<TempPath>>>, Arc<watch::Sender<u64>>)>>;
@@ -175,6 +179,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         args.temp_dir,
         settings.clone(),
         &init_settings,
+        args.force_background_scan,
         shutdown_send.clone(),
     )
     .await?;
@@ -447,7 +452,7 @@ fn build_tray_icon() {
     };
     use tray_icon::{
         menu::{Menu, MenuEvent},
-        ClickType, TrayIconBuilder, TrayIconEvent,
+        MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent,
     };
 
     // Show console
@@ -470,8 +475,15 @@ fn build_tray_icon() {
             event_loop.run(move |_event, _, control_flow| {
                 *control_flow = ControlFlow::WaitUntil((Instant::now() + Duration::from_millis(100)).into());
 
-                if let Ok(event) = tray_channel.try_recv() {
-                    if event.click_type == ClickType::Double {
+                if let Ok(TrayIconEvent::Click {
+                    id: _,
+                    position: _,
+                    rect: _,
+                    button,
+                    button_state,
+                }) = tray_channel.try_recv()
+                {
+                    if button == MouseButton::Left && button_state == MouseButtonState::Up {
                         console_hide = !console_hide;
                         switch_window(console_hide)
                     }
@@ -506,7 +518,7 @@ fn switch_window(hide: bool) {
 
     if window.0 != 0 {
         unsafe {
-            ShowWindow(window, if hide { SW_HIDE } else { SW_SHOW });
+            let _ = ShowWindow(window, if hide { SW_HIDE } else { SW_SHOW });
         }
     }
 }
